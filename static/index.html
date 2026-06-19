@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>tangerine</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --bg:           #fdf6f0;
+  --header-bg:    #f5ede4;
+  --bubble-user:  #ffd4b0;
+  --bubble-bot:   #ffffff;
+  --border:       #ead9cf;
+  --send:         #e8906a;
+  --send-hover:   #d47d58;
+  --send-off:     #dcc8be;
+  --text:         #2d2a28;
+  --muted:        #a89990;
+  --scrollbar:    #dfd0c6;
+  --notice-bg:    rgba(0,0,0,0.045);
+}
+
+html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, sans-serif; background: var(--bg); color: var(--text); }
+
+#app { display: flex; flex-direction: column; height: 100vh; max-width: 780px; margin: 0 auto; }
+
+/* ── Header ── */
+#header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 20px;
+  background: var(--header-bg);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+#header h1 { font-size: 17px; font-weight: 600; letter-spacing: 0.2px; }
+.model-tag {
+  font-size: 10.5px; color: var(--muted);
+  background: rgba(0,0,0,0.05); padding: 3px 9px; border-radius: 20px;
+}
+#clear-btn {
+  background: none; border: none; cursor: pointer;
+  font-size: 12.5px; color: var(--muted); padding: 4px 10px;
+  border-radius: 8px; transition: background 0.15s; font-family: inherit;
+}
+#clear-btn:hover { background: rgba(0,0,0,0.06); color: var(--text); }
+
+/* ── Chat area ── */
+#chat {
+  flex: 1; overflow-y: auto;
+  padding: 18px 16px 10px;
+  display: flex; flex-direction: column; gap: 2px;
+}
+#chat::-webkit-scrollbar { width: 3px; }
+#chat::-webkit-scrollbar-track { background: transparent; }
+#chat::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 3px; }
+
+/* ── Empty state ── */
+#empty {
+  flex: 1; display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  color: var(--muted); gap: 10px; pointer-events: none; user-select: none;
+}
+#empty .e-icon { font-size: 38px; opacity: 0.35; }
+#empty p { font-size: 13.5px; opacity: 0.55; }
+
+/* ── Message rows ── */
+.row { display: flex; flex-direction: column; margin-bottom: 1px; }
+.row.user  { align-items: flex-end; }
+.row.assistant { align-items: flex-start; }
+
+/* Group spacing: tighten consecutive same-sender bubbles */
+.row + .row.user.user   { margin-top: 1px; }
+.row + .row.assistant.assistant { margin-top: 1px; }
+.row.user + .row.assistant,
+.row.assistant + .row.user { margin-top: 10px; }
+
+.bubble {
+  max-width: 74%; padding: 9px 13px;
+  border-radius: 18px; font-size: 14.5px; line-height: 1.55;
+  word-wrap: break-word; white-space: pre-wrap;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+}
+.row.user .bubble {
+  background: var(--bubble-user);
+  border-bottom-right-radius: 5px;
+}
+.row.assistant .bubble {
+  background: var(--bubble-bot);
+  border-bottom-left-radius: 5px;
+  border: 1px solid var(--border);
+}
+
+.ts {
+  font-size: 10px; color: var(--muted);
+  margin-top: 3px; padding: 0 5px;
+}
+
+/* Streaming cursor */
+.streaming::after {
+  content: '▋'; display: inline;
+  animation: blink 0.75s step-end infinite;
+  color: var(--muted); margin-left: 1px;
+}
+@keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0; } }
+
+/* Trim notice */
+.trim-notice {
+  align-self: center; font-size: 11px; color: var(--muted);
+  background: var(--notice-bg); border-radius: 12px;
+  padding: 4px 14px; margin: 8px 0;
+}
+
+/* ── Input bar ── */
+#input-area {
+  display: flex; align-items: flex-end; gap: 10px;
+  padding: 10px 16px 12px;
+  background: var(--header-bg);
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+#msg-input {
+  flex: 1; min-height: 40px; max-height: 120px;
+  padding: 10px 14px; border: 1px solid var(--border);
+  border-radius: 20px; background: #fff;
+  font-size: 14px; font-family: inherit; color: var(--text);
+  resize: none; outline: none; overflow-y: auto; line-height: 1.45;
+  transition: border-color 0.15s;
+}
+#msg-input:focus { border-color: #d4906a; }
+#msg-input::placeholder { color: #c8b8b0; }
+
+#send-btn {
+  width: 42px; height: 42px; border-radius: 50%; border: none;
+  background: var(--send); color: #fff; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0; transition: background 0.15s, transform 0.1s;
+}
+#send-btn:hover:not(:disabled) { background: var(--send-hover); }
+#send-btn:active:not(:disabled) { transform: scale(0.91); }
+#send-btn:disabled { background: var(--send-off); cursor: not-allowed; }
+#send-btn svg { width: 17px; height: 17px; }
+
+/* ── Markdown inside bubbles ── */
+.bubble.rendered { white-space: normal; }
+.bubble p { margin-bottom: 5px; }
+.bubble p:last-child { margin-bottom: 0; }
+.bubble pre {
+  background: rgba(0,0,0,0.05); border-radius: 7px;
+  padding: 8px 11px; overflow-x: auto;
+  font-size: 12.5px; margin: 6px 0; white-space: pre;
+}
+.bubble code {
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+  font-size: 12.5px;
+  background: rgba(0,0,0,0.06); padding: 1px 5px; border-radius: 4px;
+}
+.bubble pre code { background: none; padding: 0; }
+.bubble strong { font-weight: 600; }
+.bubble em { font-style: italic; }
+.bubble ul, .bubble ol { padding-left: 20px; margin: 4px 0; }
+.bubble li { margin-bottom: 2px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="header">
+    <h1>tangerine</h1>
+    <span class="model-tag">gemma4:e4b</span>
+    <button id="clear-btn">clear</button>
+  </div>
+
+  <div id="chat">
+    <div id="empty">
+      <div class="e-icon">🍊</div>
+      <p>say something</p>
+    </div>
+  </div>
+
+  <div id="input-area">
+    <textarea id="msg-input" placeholder="Message" rows="1"></textarea>
+    <button id="send-btn" disabled>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3"
+           stroke-linecap="round" stroke-linejoin="round">
+        <line x1="22" y1="2" x2="11" y2="13"/>
+        <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+      </svg>
+    </button>
+  </div>
+</div>
+
+<script>
+const STORAGE_KEY = 'tangerine_v1';
+let messages = [];   // [{role, content, time}]
+let isStreaming = false;
+
+const chatEl   = document.getElementById('chat');
+const inputEl  = document.getElementById('msg-input');
+const sendBtn  = document.getElementById('send-btn');
+const emptyEl  = document.getElementById('empty');
+
+// ── Persistence ──────────────────────────────────────────
+function save() { localStorage.setItem(STORAGE_KEY, JSON.stringify(messages)); }
+function load() {
+  try { const s = localStorage.getItem(STORAGE_KEY); if (s) messages = JSON.parse(s); } catch {}
+}
+
+// ── Time ─────────────────────────────────────────────────
+function now() {
+  return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+// ── Markdown (post-stream only) ───────────────────────────
+function renderMarkdown(raw) {
+  // Protect code blocks first
+  const blocks = [];
+  let html = raw.replace(/```[\s\S]*?```/g, m => { blocks.push(m); return `\x00${blocks.length - 1}\x00`; });
+
+  html = html
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/^#{1,3} (.+)$/gm, '<strong>$1</strong>');
+
+  // Lists
+  html = html.replace(/(^[-*] .+$(\n[-*] .+$)*)/gm, match => {
+    const items = match.split('\n').map(l => `<li>${l.replace(/^[-*] /, '')}</li>`).join('');
+    return `<ul>${items}</ul>`;
+  });
+
+  // Restore code blocks
+  html = html.replace(/\x00(\d+)\x00/g, (_, i) => {
+    const block = blocks[+i];
+    const lang = block.match(/^```(\w*)/)?.[1] || '';
+    const code = block.replace(/^```\w*\n?/, '').replace(/```$/, '').trim();
+    return `<pre><code>${code.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</code></pre>`;
+  });
+
+  // Paragraphs
+  const parts = html.split(/\n\n+/);
+  html = parts.map(p => {
+    if (/^<(pre|ul|ol|li)/.test(p.trim())) return p;
+    return `<p>${p.replace(/\n/g, '<br>')}</p>`;
+  }).join('');
+
+  return html;
+}
+
+// ── DOM helpers ───────────────────────────────────────────
+function scrollBottom() { chatEl.scrollTop = chatEl.scrollHeight; }
+
+function updateEmpty() { emptyEl.style.display = messages.length ? 'none' : 'flex'; }
+
+function makeRow(role, text, time, streaming) {
+  const row = document.createElement('div');
+  row.className = `row ${role}`;
+
+  const bubble = document.createElement('div');
+  bubble.className = 'bubble' + (streaming ? ' streaming' : '');
+  bubble.textContent = text;
+
+  const ts = document.createElement('div');
+  ts.className = 'ts';
+  ts.textContent = time;
+
+  row.appendChild(bubble);
+  row.appendChild(ts);
+  return { row, bubble };
+}
+
+function addTrimNotice() {
+  const el = document.createElement('div');
+  el.className = 'trim-notice';
+  el.textContent = 'older messages removed to fit context';
+  chatEl.appendChild(el);
+}
+
+// ── Render all from messages[] ────────────────────────────
+function renderAll() {
+  Array.from(chatEl.children).forEach(el => { if (el.id !== 'empty') el.remove(); });
+  for (const m of messages) {
+    const { row, bubble } = makeRow(m.role, '', m.time, false);
+    if (m.role === 'assistant') {
+      bubble.innerHTML = renderMarkdown(m.content);
+      bubble.classList.add('rendered');
+    } else {
+      bubble.textContent = m.content;
+    }
+    chatEl.appendChild(row);
+  }
+  updateEmpty();
+  scrollBottom();
+}
+
+// ── Send ──────────────────────────────────────────────────
+async function send() {
+  const text = inputEl.value.trim();
+  if (!text || isStreaming) return;
+
+  isStreaming = true;
+  sendBtn.disabled = true;
+  inputEl.value = '';
+  resize();
+
+  const uTime = now();
+  messages.push({ role: 'user', content: text, time: uTime });
+  save();
+  updateEmpty();
+
+  const { row: uRow, bubble: uBubble } = makeRow('user', text, uTime, false);
+  chatEl.appendChild(uRow);
+  scrollBottom();
+
+  const aTime = now();
+  const { row: aRow, bubble: aBubble } = makeRow('assistant', '', aTime, true);
+  chatEl.appendChild(aRow);
+  scrollBottom();
+
+  let acc = '';
+
+  try {
+    const resp = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: messages.map(m => ({ role: m.role, content: m.content })) })
+    });
+
+    const reader = resp.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop();
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const raw = line.slice(6).trim();
+        if (!raw) continue;
+        try {
+          const evt = JSON.parse(raw);
+          if (evt.type === 'trimmed') {
+            addTrimNotice();
+          } else if (evt.type === 'content') {
+            acc += evt.text;
+            aBubble.textContent = acc;
+            scrollBottom();
+          } else if (evt.type === 'done') {
+            aBubble.classList.remove('streaming');
+            aBubble.classList.add('rendered');
+            aBubble.innerHTML = renderMarkdown(acc);
+            messages.push({ role: 'assistant', content: acc, time: aTime });
+            save();
+            scrollBottom();
+          }
+        } catch {}
+      }
+    }
+  } catch {
+    aBubble.classList.remove('streaming');
+    aBubble.textContent = 'connection error — is ollama running?';
+    aBubble.style.color = '#c0392b';
+  }
+
+  isStreaming = false;
+  sendBtn.disabled = inputEl.value.trim() === '';
+  inputEl.focus();
+}
+
+// ── Input resize ──────────────────────────────────────────
+function resize() {
+  inputEl.style.height = 'auto';
+  inputEl.style.height = Math.min(inputEl.scrollHeight, 120) + 'px';
+}
+
+inputEl.addEventListener('input', () => {
+  sendBtn.disabled = !inputEl.value.trim() || isStreaming;
+  resize();
+});
+
+inputEl.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    if (!sendBtn.disabled) send();
+  }
+});
+
+sendBtn.addEventListener('click', send);
+
+document.getElementById('clear-btn').addEventListener('click', () => {
+  if (!messages.length || !confirm('clear conversation?')) return;
+  messages = [];
+  save();
+  renderAll();
+});
+
+// ── Init ──────────────────────────────────────────────────
+load();
+renderAll();
+inputEl.focus();
+</script>
+</body>
+</html>
